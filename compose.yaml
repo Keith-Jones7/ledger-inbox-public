@@ -1,0 +1,55 @@
+x-runtime: &runtime
+  LEDGER_INBOX_DATA_DIR: /data
+  LEDGER_INBOX_LEDGER_SINK: ${LEDGER_INBOX_LEDGER_SINK:-directory}
+  LEDGER_INBOX_LEDGER_WEBHOOK_URL: ${LEDGER_INBOX_LEDGER_WEBHOOK_URL:-}
+  LEDGER_INBOX_LEDGER_WEBHOOK_SECRET: ${LEDGER_INBOX_LEDGER_WEBHOOK_SECRET:-}
+  LEDGER_INBOX_LEDGER_STATUS_URL: ${LEDGER_INBOX_LEDGER_STATUS_URL:-}
+  LEDGER_INBOX_MIN_CONFIDENCE: ${LEDGER_INBOX_MIN_CONFIDENCE:-0.9}
+  LEDGER_INBOX_REQUIRED_FIELDS: ${LEDGER_INBOX_REQUIRED_FIELDS:-occurred_at,category}
+  LEDGER_INBOX_CATEGORIES: ${LEDGER_INBOX_CATEGORIES:-}
+  LEDGER_INBOX_MAX_IMAGE_BYTES: ${LEDGER_INBOX_MAX_IMAGE_BYTES:-12582912}
+  LEDGER_INBOX_MAX_EMAIL_BYTES: ${LEDGER_INBOX_MAX_EMAIL_BYTES:-50331648}
+  LEDGER_INBOX_MAX_IMAGE_PIXELS: ${LEDGER_INBOX_MAX_IMAGE_PIXELS:-25000000}
+  LEDGER_INBOX_LEASE_SECONDS: ${LEDGER_INBOX_LEASE_SECONDS:-600}
+  LEDGER_INBOX_MAX_RECOGNITION_ATTEMPTS: ${LEDGER_INBOX_MAX_RECOGNITION_ATTEMPTS:-3}
+
+services:
+  api:
+    build: .
+    command: ["ledger-inbox", "serve", "--host", "0.0.0.0", "--port", "8080"]
+    environment:
+      <<: *runtime
+      LEDGER_INBOX_EMAIL_WEBHOOK_SECRET: ${LEDGER_INBOX_EMAIL_WEBHOOK_SECRET:-}
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - ledger-inbox-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: .
+    command: ["ledger-inbox", "worker"]
+    environment:
+      <<: *runtime
+      LEDGER_INBOX_RECOGNIZER: ${LEDGER_INBOX_RECOGNIZER:-mock}
+      LEDGER_INBOX_MODEL_BASE_URL: ${LEDGER_INBOX_MODEL_BASE_URL:-http://host.docker.internal:11434/v1}
+      LEDGER_INBOX_MODEL_API_KEY: ${LEDGER_INBOX_MODEL_API_KEY:-local}
+      LEDGER_INBOX_MODEL_NAME: ${LEDGER_INBOX_MODEL_NAME:-qwen3.5:4b}
+      LEDGER_INBOX_MODEL_TIMEOUT_SECONDS: ${LEDGER_INBOX_MODEL_TIMEOUT_SECONDS:-90}
+      LEDGER_INBOX_SHADOW_MODEL: ${LEDGER_INBOX_SHADOW_MODEL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ledger-inbox-data:/data
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  ledger-inbox-data:
